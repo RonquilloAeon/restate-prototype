@@ -17,9 +17,9 @@ RUN poetry config virtualenvs.create false
 # Install dependencies
 RUN poetry install --no-interaction --no-ansi
 
-# Expose the port on which the API will run
-EXPOSE 8000
+EXPOSE 8008
+EXPOSE 9080
 
 # Command to run the API
 ENTRYPOINT ["uvicorn"]
-CMD ["src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["src.api.main:app", "--host", "0.0.0.0", "--port", "8008", "--reload"]

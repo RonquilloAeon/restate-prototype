@@ -19,12 +19,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"  # FastAPI application
     depends_on:
       restate:
         condition: service_healthy
     environment:
       - RESTATE_ENDPOINT=http://restate:8080
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./src:/app/src
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: "hypercorn"
+    command: ["--bind", "0.0.0.0:9080", "--reload", "src.worker.main:app"]
+    depends_on:
+      restate:
+        condition: service_healthy
+    ports:
+      - "9080:9080"
     volumes:
       - ./src:/app/src
