@@ -29,6 +29,18 @@ services:
     volumes:
       - ./src:/app/src
 
+  link:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: "python"
+    command: ["-m", "src.edge_link.main"]
+    depends_on:
+      nats:
+        condition: service_started
+    volumes:
+      - ./src:/app/src
+
   worker:
     build:
       context: .
@@ -42,3 +54,9 @@ services:
       - "9080:9080"
     volumes:
       - ./src:/app/src
+
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"
+      - "8222:8222"

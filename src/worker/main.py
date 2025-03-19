@@ -2,11 +2,34 @@ import logging
 
 import restate
 
-from .service import lightbulb_service
-
+from .di import container
+from .lightbulb_service import lightbulb_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-logger.info("Starting Restate app")
-app = restate.app([lightbulb_service])
+
+def create_app():
+    logger.info("Creating Restate app w/ lifespan")
+    _restate_app = restate.app([lightbulb_service])
+
+    async def _app(scope, receive, send):
+        if scope['type'] == 'lifespan':
+            logger.info("Handling lifespan request")
+            while True:
+                message = await receive()
+
+                if message['type'] == 'lifespan.startup':
+                    await send({'type': 'lifespan.startup.complete'})
+                elif message['type'] == 'lifespan.shutdown':
+                    await container.aclose()
+                    await send({'type': 'lifespan.shutdown.complete'})
+                    return
+        else:
+            logger.info("Handling non-lifespan request")
+            return await _restate_app(scope, receive, send)
+        
+    return _app
+
+
+app = create_app()
