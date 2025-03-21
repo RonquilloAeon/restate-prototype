@@ -21,6 +21,20 @@ def return_validation_error_response(e: ValidationError) -> LightbulbResponse:
 def construct_handler(nc: nats.aio.client.Client) -> typing.Coroutine:
     def _get_response(sub: str, data: str) -> LightbulbResponse:
         match sub:
+            case "lightbulb.install":
+                try:
+                    request = LightbulbRequest.model_validate_json(data)
+                except ValidationError as e:
+                    response = return_validation_error_response(e)
+                else:
+                    if request.id in light_bulbs:
+                        response = LightbulbResponse(success=False, error_message="Lightbulb ID already exists")
+                    else:
+                        light_bulbs[request.id] = {
+                            "ctx": request.data or {},
+                            "status": "OFF",
+                        }
+                        response = LightbulbResponse(id=request.id, data=light_bulbs[request.id], success=True)
             case "lightbulb.get":
                 try:
                     request = LightbulbRequest.model_validate_json(data)
@@ -28,8 +42,9 @@ def construct_handler(nc: nats.aio.client.Client) -> typing.Coroutine:
                     response = return_validation_error_response(e)
                 else:
                     if request.id not in light_bulbs:
-                        light_bulbs[request.id] = random.choice(["ON", "OFF"])
-                    response = LightbulbResponse(id=request.id, data={"status": light_bulbs[request.id]}, success=True)
+                        response = LightbulbResponse(success=False, error_message="Lightbulb ID not found")
+                    else:
+                        response = LightbulbResponse(id=request.id, data=light_bulbs[request.id], success=True)
             case "lightbulb.toggle":
                 try:
                     request = LightbulbRequest.model_validate_json(data)
@@ -37,10 +52,21 @@ def construct_handler(nc: nats.aio.client.Client) -> typing.Coroutine:
                     response = return_validation_error_response(e)
                 else:
                     if request.id not in light_bulbs:
-                        light_bulbs[request.id] = random.choice(["ON", "OFF"])
+                        response = LightbulbResponse(success=False, error_message="Lightbulb ID not found")
                     else:
-                        light_bulbs[request.id] = "OFF" if light_bulbs[request.id] == "ON" else "ON"
-                    response = LightbulbResponse(id=request.id, data={"status": light_bulbs[request.id]}, success=True)
+                        light_bulbs[request.id]["status"] = "OFF" if light_bulbs[request.id]["status"] == "ON" else "ON"
+                        response = LightbulbResponse(id=request.id, data=light_bulbs[request.id], success=True)
+            case "lightbulb.uninstall":
+                try:
+                    request = LightbulbRequest.model_validate_json(data)
+                except ValidationError as e:
+                    response = return_validation_error_response(e)
+                else:
+                    if request.id not in light_bulbs:
+                        response = LightbulbResponse(success=False, error_message="Lightbulb ID not found")
+                    else:
+                        del light_bulbs[request.id]
+                        response = LightbulbResponse(id=request.id, success=True)
             case _:
                 response = LightbulbResponse(success=False, error_message="Unknown subject")
 
@@ -51,6 +77,7 @@ def construct_handler(nc: nats.aio.client.Client) -> typing.Coroutine:
         reply = msg.reply
         recv_data = msg.data.decode()
         logger.info(f"Received a message on '{subject} {reply}': {recv_data}")
+        logger.info("State of light bulbs: %s", light_bulbs)
 
         try:
             response = _get_response(subject, recv_data)
@@ -70,8 +97,10 @@ async def main():
     nc = await nats.connect("nats://nats:4222")
     message_handler = construct_handler(nc)
 
+    await nc.subscribe("lightbulb.install", cb=message_handler)
     await nc.subscribe("lightbulb.get", cb=message_handler)
     await nc.subscribe("lightbulb.toggle", cb=message_handler)
+    await nc.subscribe("lightbulb.uninstall", cb=message_handler)
 
     try:
         while True:

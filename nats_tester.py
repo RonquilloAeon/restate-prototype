@@ -1,14 +1,15 @@
+import argparse
 import asyncio
 import nats
 import logging
 
-from src.models import LightbulbRequest, LightbulbResponse
+from src.models import LightbulbRequest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def test_nats():
+async def test_nats(bulb_id):
     nc = await nats.connect("nats://localhost:4222")
 
     async def request_lightbulb_state(bulb_id):
@@ -21,15 +22,14 @@ async def test_nats():
         response = await nc.request("lightbulb.toggle", request.model_dump_json().encode(), timeout=1)
         logger.info(f"Lightbulb {bulb_id} toggled to: {response.data.decode()}")
 
-    bulb_id = "bulb-1"
     await request_lightbulb_state(bulb_id)
     await toggle_lightbulb(bulb_id)
-    await request_lightbulb_state(bulb_id)
-    await toggle_lightbulb(bulb_id)
-    await request_lightbulb_state(bulb_id)
     await request_lightbulb_state(bulb_id)
 
     await nc.drain()
 
 if __name__ == '__main__':
-    asyncio.run(test_nats())
+    parser = argparse.ArgumentParser(description='Test NATS with a specific lightbulb ID')
+    parser.add_argument('bulb_id', type=str, help='The ID of the lightbulb to test')
+    args = parser.parse_args()
+    asyncio.run(test_nats(args.bulb_id))

@@ -1,26 +1,13 @@
 import asyncio
-import logging
-import random
 
-from pydantic import BaseModel
 from restate import Service, Context
 from restate.exceptions import TerminalError
 
-from src.models import LightBulb, LightStatus, LightbulbRequest, LightbulbResponse, ToggleLightbulbResponse
-from . import services
-from .di import container
+from .models import LightbulbIdInput, LightbulbDataIo, ToggleLightbulbResponse
+from .utils import send_lightbulb_request, get_random_delay
+from src.models import LightbulbResponse, ToggleLightbulbResponse
 
-logger = logging.getLogger(__name__)
-
-lightbulb_service = Service("lightbulb_manager")
-
-
-class LightbulbInput(BaseModel):
-    id: str
-
-
-class ToggleLightbulbResponse(LightbulbInput):
-    run_time: int
+lightbulb_service = Service("LightbulbManagementSvc")
 
 
 def wrap_async_call(coro_fn, *args, **kwargs):
@@ -30,46 +17,37 @@ def wrap_async_call(coro_fn, *args, **kwargs):
     return wrapped
 
 
-async def get_lightbulb_status(id: str) -> str:
-    nats_client = await container.aget(services.NATSClient)
-    request = LightbulbRequest(id=id)
-    response = await nats_client.request("lightbulb.get", request.model_dump_json())
-    logger.info(f"Received response for lightbulb {id}: {response}")
+@lightbulb_service.handler()
+async def install_lightbulb(ctx: Context, input_: LightbulbDataIo) -> LightbulbResponse:
+    """Install a new light bulb by its ID"""
 
-    return LightbulbResponse.model_validate_json(response).data["status"]
+    try:
+        result = await ctx.run("installing new lightbulb", wrap_async_call(send_lightbulb_request, input_.id, "lightbulb.install", input_.data), max_attempts=5)
+    except TerminalError as e:
+        raise e
+    
+    return LightbulbResponse.model_validate_json(result)
 
 
 @lightbulb_service.handler()
-async def get_lightbulb(ctx: Context, data: LightbulbInput) -> LightBulb:
+async def get_lightbulb(ctx: Context, input_: LightbulbIdInput) -> LightbulbResponse:
     """Get a light bulb by its ID"""
 
     try:
-        status = await ctx.run("fetching lightbulb status", wrap_async_call(get_lightbulb_status, data.id), max_attempts=3)
+        result = await ctx.run("fetching lightbulb status", wrap_async_call(send_lightbulb_request, input_.id, "lightbulb.get"), max_attempts=3)
     except TerminalError as e:
+        # TODO ensure returned error message is useful
         raise e
 
-    return LightBulb(id=data.id, status=LightStatus(status))
-
-
-async def change_lightbulb_status(id: str) -> str:
-    nats_client = await container.aget(services.NATSClient)
-    request = LightbulbRequest(id=id)
-    response = await nats_client.request("lightbulb.toggle", request.model_dump_json())
-    logger.info(f"Received response for toggling lightbulb {id}: {response}")
-
-    return LightbulbResponse.model_validate_json(response).data["status"]
-
-
-def get_random_delay() -> int:
-    return random.randint(1, 5)
+    return LightbulbResponse.model_validate_json(result)
 
 
 @lightbulb_service.handler()
-async def toggle_lightbulb(ctx: Context, data: LightbulbInput) -> ToggleLightbulbResponse:
+async def toggle_lightbulb(ctx: Context, input_: LightbulbIdInput) -> ToggleLightbulbResponse:
     """Toggle a light bulb's status between ON and OFF"""
 
     try:
-        status = await ctx.run("toggling lightbulb status", wrap_async_call(change_lightbulb_status, data.id), max_attempts=3)
+        result = await ctx.run("toggling lightbulb status", wrap_async_call(send_lightbulb_request, input_.id, "lightbulb.toggle"), max_attempts=3)
     except TerminalError as e:
         raise e
     
@@ -77,4 +55,20 @@ async def toggle_lightbulb(ctx: Context, data: LightbulbInput) -> ToggleLightbul
     delay = await ctx.run("getting random delay", lambda: get_random_delay(), max_attempts=3)
     await asyncio.sleep(delay)
 
-    return ToggleLightbulbResponse(id=data.id, status=LightStatus(status), run_time=delay)
+    result = LightbulbResponse.model_validate_json(result)
+
+    return ToggleLightbulbResponse(id=result.id, data=result.data, run_time=delay)
+
+
+@lightbulb_service.handler()
+async def uninstall_lightbulb(ctx: Context, input_: LightbulbIdInput) -> bool:
+    """Install a new light bulb by its ID"""
+
+    try:
+        result = await ctx.run("uninstalling lightbulb", wrap_async_call(send_lightbulb_request, input_.id, "lightbulb.uninstall"), max_attempts=5)
+    except TerminalError as e:
+        raise e
+    
+    result = LightbulbResponse.model_validate_json(result)
+
+    return result.success

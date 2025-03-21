@@ -9,11 +9,13 @@ class LightStatus(str, Enum):
 
 class LightBulb(BaseModel):
     id: str
+    data: dict
     status: LightStatus = LightStatus.OFF
 
 
 class LightbulbRequest(BaseModel):
     id: str
+    data: dict | None = None
 
 class LightbulbResponse(BaseModel):
     success: bool

@@ -4,6 +4,7 @@ import restate
 
 from .di import container
 from .lightbulb_service import lightbulb_service
+from .lightbulb_workflow import installation_workflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def create_app():
     logger.info("Creating Restate app w/ lifespan")
-    _restate_app = restate.app([lightbulb_service])
+    _restate_app = restate.app([installation_workflow, lightbulb_service])
 
     async def _app(scope, receive, send):
         if scope['type'] == 'lifespan':
