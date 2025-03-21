@@ -13,8 +13,8 @@ class NATSClient:
     async def connect(self):
         await self.nc.connect(self.nats_url)
 
-    async def request(self, subject, data):
-        response = await self.nc.request(subject, data.encode())
+    async def request(self, subject: str, data: str) -> str:
+        response = await self.nc.request(subject, data.encode(), timeout=1)
         return response.data.decode()
 
 

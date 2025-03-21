@@ -1,13 +1,16 @@
 import asyncio
+import logging
 import random
 
 from pydantic import BaseModel
 from restate import Service, Context
 from restate.exceptions import TerminalError
 
-from src.models import LightBulb, LightStatus
+from src.models import LightBulb, LightStatus, LightbulbRequest, LightbulbResponse, ToggleLightbulbResponse
 from . import services
 from .di import container
+
+logger = logging.getLogger(__name__)
 
 lightbulb_service = Service("lightbulb_manager")
 
@@ -29,7 +32,11 @@ def wrap_async_call(coro_fn, *args, **kwargs):
 
 async def get_lightbulb_status(id: str) -> str:
     nats_client = await container.aget(services.NATSClient)
-    return await nats_client.request("lightbulb.get", id)
+    request = LightbulbRequest(id=id)
+    response = await nats_client.request("lightbulb.get", request.model_dump_json())
+    logger.info(f"Received response for lightbulb {id}: {response}")
+
+    return LightbulbResponse.model_validate_json(response).data["status"]
 
 
 @lightbulb_service.handler()
@@ -46,7 +53,11 @@ async def get_lightbulb(ctx: Context, data: LightbulbInput) -> LightBulb:
 
 async def change_lightbulb_status(id: str) -> str:
     nats_client = await container.aget(services.NATSClient)
-    return await nats_client.request("lightbulb.toggle", id)
+    request = LightbulbRequest(id=id)
+    response = await nats_client.request("lightbulb.toggle", request.model_dump_json())
+    logger.info(f"Received response for toggling lightbulb {id}: {response}")
+
+    return LightbulbResponse.model_validate_json(response).data["status"]
 
 
 def get_random_delay() -> int:

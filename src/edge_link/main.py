@@ -1,6 +1,9 @@
 import asyncio
 import logging
 import random
+import typing
+from pydantic import ValidationError
+from src.models import LightbulbRequest, LightbulbResponse
 
 import nats
 
@@ -10,28 +13,62 @@ logger = logging.getLogger(__name__)
 # Dictionary to track light bulb states
 light_bulbs = {}
 
-async def main():
-    nc = await nats.connect("nats://nats:4222")
 
-    async def message_handler(msg):
+def return_validation_error_response(e: ValidationError) -> LightbulbResponse:
+    return LightbulbResponse(success=False, error_message=str(e))
+
+
+def construct_handler(nc: nats.aio.client.Client) -> typing.Coroutine:
+    def _get_response(sub: str, data: str) -> LightbulbResponse:
+        match sub:
+            case "lightbulb.get":
+                try:
+                    request = LightbulbRequest.model_validate_json(data)
+                except ValidationError as e:
+                    response = return_validation_error_response(e)
+                else:
+                    if request.id not in light_bulbs:
+                        light_bulbs[request.id] = random.choice(["ON", "OFF"])
+                    response = LightbulbResponse(id=request.id, data={"status": light_bulbs[request.id]}, success=True)
+            case "lightbulb.toggle":
+                try:
+                    request = LightbulbRequest.model_validate_json(data)
+                except ValidationError as e:
+                    response = return_validation_error_response(e)
+                else:
+                    if request.id not in light_bulbs:
+                        light_bulbs[request.id] = random.choice(["ON", "OFF"])
+                    else:
+                        light_bulbs[request.id] = "OFF" if light_bulbs[request.id] == "ON" else "ON"
+                    response = LightbulbResponse(id=request.id, data={"status": light_bulbs[request.id]}, success=True)
+            case _:
+                response = LightbulbResponse(success=False, error_message="Unknown subject")
+
+        return response
+
+    async def _handler(msg):
         subject = msg.subject
         reply = msg.reply
-        data = msg.data.decode()
-        logger.info(f"Received a message on '{subject} {reply}': {data}")
+        recv_data = msg.data.decode()
+        logger.info(f"Received a message on '{subject} {reply}': {recv_data}")
 
-        if subject == "lightbulb.get":
-            bulb_id = data
-            if bulb_id not in light_bulbs:
-                light_bulbs[bulb_id] = random.choice(["ON", "OFF"])
-            await nc.publish(reply, light_bulbs[bulb_id].encode())
+        try:
+            response = _get_response(subject, recv_data)
+        except Exception as e:
+            logger.error(f"Unhandled processing error: {e}")
+            response = LightbulbResponse(success=False, error_message="We encountered an unexpected error")
 
-        elif subject == "lightbulb.toggle":
-            bulb_id = data
-            if bulb_id not in light_bulbs:
-                light_bulbs[bulb_id] = random.choice(["ON", "OFF"])
-            else:
-                light_bulbs[bulb_id] = "OFF" if light_bulbs[bulb_id] == "ON" else "ON"
-            await nc.publish(reply, light_bulbs[bulb_id].encode())
+        reply_data = response.model_dump_json().encode()
+        logger.info(f"Sending response: {reply_data}")
+
+        await nc.publish(reply, reply_data)
+
+    return _handler
+
+
+async def main():
+    nc = await nats.connect("nats://nats:4222")
+    message_handler = construct_handler(nc)
 
     await nc.subscribe("lightbulb.get", cb=message_handler)
     await nc.subscribe("lightbulb.toggle", cb=message_handler)

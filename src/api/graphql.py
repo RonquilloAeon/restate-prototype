@@ -47,7 +47,7 @@ async def call_restate(service_name: str, handler_name: str, data: Optional[dict
         "idempotency-key": key,
     }
     logger.info("Calling Restate service: %s, data: %s", endpoint, data)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(endpoint, headers=headers, json=data)
 
         response.raise_for_status()
